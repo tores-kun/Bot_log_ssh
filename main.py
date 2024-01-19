@@ -1,7 +1,10 @@
-import telebot, threading, re, subprocess
-from datetime import datetime, timedelta
 import os
-
+import re
+import time
+import threading
+import subprocess
+import telebot
+from datetime import datetime, timedelta
 
 bot_token = open('token.txt', 'r').read().strip()
 bot = telebot.TeleBot(token=bot_token)
@@ -16,9 +19,11 @@ item_year = telebot.types.KeyboardButton('Year')
 active_connections = telebot.types.KeyboardButton('/connections')
 markup.add(item_day, item_week, item_month, item_year, active_connections)
 
+
 def send_startup_message():
     startup_message = "Привет! Я был заново запущен. Для получения статистики по подключениям используйте кнопки снизу."
     bot.send_message(expected_chat_id, startup_message, reply_markup=markup)
+
 
 def handle_period_choice(message):
     if message.chat.id == expected_chat_id:
@@ -41,6 +46,7 @@ def handle_period_choice(message):
     else:
         bot.send_message(message.chat.id, 'Вы не имеете доступа к этому боту.')
 
+
 def get_ssh_logs(period):
     try:
         now = datetime.now()
@@ -54,7 +60,6 @@ def get_ssh_logs(period):
             start_time = now - timedelta(days=365)
         command = ["journalctl", "_COMM=sshd", f"--since={start_time.strftime('%Y-%m-%d %H:%M:%S')}", f"--until={now.strftime('%Y-%m-%d %H:%M:%S')}", "--no-pager"]
         result = subprocess.check_output(command).decode('utf-8')
-        logs = result.split('\n')
         message = f"Попытки входа за последний {period} с {start_time.strftime('%Y-%m-%d %H:%M:%S')} по {now.strftime('%Y-%m-%d %H:%M:%S')}:\n"
         successful_logins = re.findall(r'(\w+ \d+ \d+:\d+:\d+) .* Accepted password for (\S+) from (\S+) port \d+ ssh2', result)
         failed_logins = re.findall(r'(\w+ \d+ \d+:\d+:\d+) .* Failed password for (\S+) from (\S+) port \d+ ssh2', result)
@@ -74,17 +79,9 @@ def get_ssh_logs(period):
         print(error_message)
         return error_message
 
+
 def send_ssh_logs_file(period, chat_id):
     try:
-        now = datetime.now()
-        if period == 'week':
-            start_time = now - timedelta(weeks=1)
-        elif period == 'month':
-            start_time = now - timedelta(days=30)
-        elif period == 'year':
-            start_time = now - timedelta(days=365)
-        else:
-            return  # Ничего не делаем для 'day'
         logs_message = get_ssh_logs(period)
         if logs_message:
             # Сохраняем данные в файл
@@ -111,6 +108,7 @@ def send_ssh_logs_file(period, chat_id):
         print(error_message)
         return error_message
 
+
 def monitor_ssh_logs():
     try:
         last_log_time = datetime.now() - timedelta(seconds=1)  # Начать с предыдущей секунды
@@ -121,6 +119,7 @@ def monitor_ssh_logs():
                 process_ssh_logs(logs)
     except Exception as e:
         print(f'Error in monitor_ssh_logs: {e}')
+
 
 def process_ssh_logs(logs):
     try:
@@ -153,11 +152,11 @@ def process_ssh_logs(logs):
                     message += f" from IP {ip_address}"
                 bot.send_message(expected_chat_id, message)
                 # TO-DO: Добавьть код обработки отключения пользователя здесь
-
     except Exception as e:
         error_message = f'Error in process_ssh_logs: {e}'
         print(error_message)
         bot.send_message(expected_chat_id, error_message)
+
 
 def get_new_ssh_logs(last_log_time):
     try:
@@ -170,6 +169,7 @@ def get_new_ssh_logs(last_log_time):
         print(f'Error in get_new_ssh_logs: {e}')
         return None
 
+
 # Запуск потока мониторинга
 monitor_thread = threading.Thread(target=monitor_ssh_logs)
 monitor_thread.start()
@@ -177,9 +177,10 @@ monitor_thread.start()
 # Отправка приветственного сообщения
 send_startup_message()
 
+
 def get_active_connections():
     try:
-         # Код для получения информации о текущих подключениях
+        # Код для получения информации о текущих подключениях
         command = ["who"]
         result = subprocess.check_output(command).decode('utf-8')
         if not result.strip():  # Если нет активных подключений
@@ -189,6 +190,7 @@ def get_active_connections():
     except Exception as e:
         return f"Error getting active connections: {e}"
 
+
 @bot.message_handler(commands=['connections'])
 def handle_active_connections(message):
     if message.chat.id == expected_chat_id:
@@ -197,6 +199,7 @@ def handle_active_connections(message):
     else:
         bot.send_message(message.chat.id, 'Вы не имеете доступа к этой команде.')
 
+
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     try:
@@ -204,6 +207,7 @@ def handle_all_messages(message):
             handle_period_choice(message)
     except Exception as e:
         print(f'Error in handle_all_messages: {e}')
+
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
