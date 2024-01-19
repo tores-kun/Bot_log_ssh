@@ -31,7 +31,11 @@ def handle_period_choice(message):
         else:
             logs_message = get_ssh_logs(period)
             if logs_message:
-                bot.send_message(message.chat.id, logs_message)
+                if len(logs_message) > 4095:
+                    for x in range(0, len(logs_message), 4095):
+                        bot.send_message(message.chat.id, text=logs_message[x:x+4095])
+                else:
+                    bot.send_message(message.chat.id, logs_message)
             else:
                 bot.send_message(message.chat.id, f'За выбранный период ({period}) попыток входа не найдено.')
     else:
@@ -62,7 +66,6 @@ def get_ssh_logs(period):
             message += "Неудачные входы:\n"
             for time, login, ip_address in failed_logins:
                 message += f"- {login} с IP-адреса {ip_address} в {time}\n"
-        print(f"Logs for {period}:\n{message}")
         return message
     except ValueError as ve:
         return str(ve)
@@ -101,6 +104,10 @@ def send_ssh_logs_file(period, chat_id):
         return f'TelegramError: {te}'
     except Exception as e:
         error_message = f'Error: {e}'
+        if "Read timed out" in str(e):
+            # Если таймаут, подождите и повторите попытку
+            time.sleep(5)
+            send_ssh_logs_file(chat_id, logs_message)
         print(error_message)
         return error_message
 
@@ -119,25 +126,34 @@ def process_ssh_logs(logs):
     try:
         for log in logs:
             match_accepted = re.search(r'(\w+ \d+ \d+:\d+:\d+) .* Accepted password for (\S+) from (\S+) port \d+ ssh2', log)
+            match_failed = re.search(r'(\w+ \d+ \d+:\d+:\d+) .* Failed password for (\S+) from (\S+) port \d+ ssh2', log)
             match_disconnected = re.search(r'(\w+ \d+ \d+:\d+:\d+) .* Disconnected from user (\S+) (\S+)', log)
             if match_accepted:
                 log_time = match_accepted.group(1)
                 username = match_accepted.group(2)
                 ip_address = match_accepted.group(3)
-                message = f"User {username} logged in at {log_time} from IP {ip_address}"
+                message = f"Пользователь {username} подключился в {log_time} с IP {ip_address}"
                 bot.send_message(expected_chat_id, message)
                 # TO-DO: Добавьть код обработки успешного входа здесь
+            elif match_failed:
+                log_time = match_failed.group(1)
+                username = match_failed.group(2)
+                ip_address = match_failed.group(3)
+                message = f"Неудачная попытка входа в систему для пользователя {username} в {log_time} с IP {ip_address}"
+                bot.send_message(expected_chat_id, message)
+                # TO-DO: Добавьть код обработки неудачного входа здесь
             elif match_disconnected:
                 log_time_str = match_disconnected.group(1)
                 username = match_disconnected.group(2)
                 ip_address = match_disconnected.group(3)
                 log_time = datetime.strptime(log_time_str, '%b %d %H:%M:%S')
                 formatted_log_time = log_time.strftime('%b %d %H:%M:%S')
-                message = f"User {username} disconnected at {formatted_log_time}"
+                message = f"Пользователь {username} отключился в {formatted_log_time}"
                 if ip_address:
                     message += f" from IP {ip_address}"
                 bot.send_message(expected_chat_id, message)
                 # TO-DO: Добавьть код обработки отключения пользователя здесь
+
     except Exception as e:
         error_message = f'Error in process_ssh_logs: {e}'
         print(error_message)
@@ -163,13 +179,16 @@ send_startup_message()
 
 def get_active_connections():
     try:
-        # Ваш код для получения информации о текущих подключениях
+         # Код для получения информации о текущих подключениях
         command = ["who"]
         result = subprocess.check_output(command).decode('utf-8')
-        return result
+        if not result.strip():  # Если нет активных подключений
+            return "Нет активных подключений в данный момент."
+        else:
+            return result
     except Exception as e:
         return f"Error getting active connections: {e}"
-    
+
 @bot.message_handler(commands=['connections'])
 def handle_active_connections(message):
     if message.chat.id == expected_chat_id:
