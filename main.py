@@ -5,6 +5,11 @@ import threading
 import subprocess
 import telebot
 from datetime import datetime, timedelta
+import logging
+import requests
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 bot_token = open('token.txt', 'r').read().strip()
 bot = telebot.TeleBot(token=bot_token)
@@ -72,12 +77,15 @@ def get_ssh_logs(period):
             for time, login, ip_address in failed_logins:
                 message += f"- {login} с IP-адреса {ip_address} в {time}\n"
         return message
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка при выполнении команды journalctl: {e}")
+        return f"Ошибка при получении логов: {e}"
     except ValueError as ve:
+        logger.error(f"Ошибка значения: {ve}")
         return str(ve)
     except Exception as e:
-        error_message = f'Error: {e}'
-        print(error_message)
-        return error_message
+        logger.error(f"Неожиданная ошибка в get_ssh_logs: {e}")
+        return f"Произошла неожиданная ошибка: {e}"
 
 
 def send_ssh_logs_file(period, chat_id):
@@ -99,6 +107,10 @@ def send_ssh_logs_file(period, chat_id):
         return str(ve)
     except telebot.apihelper.ApiException as te:
         return f'TelegramError: {te}'
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Ошибка сети при отправке файла: {e}")
+        time.sleep(5)
+        send_ssh_logs_file(period, chat_id)  # Повторная попытка
     except Exception as e:
         error_message = f'Error: {e}'
         if "Read timed out" in str(e):
@@ -120,7 +132,7 @@ def monitor_ssh_logs():
                     process_ssh_logs(logs)
                 time.sleep(1)  # Добавляем небольшую задержку
         except Exception as e:
-            print(f'Ошибка в monitor_ssh_logs: {e}')
+            logger.error(f'Ошибка в monitor_ssh_logs: {e}')
             time.sleep(10)  # Ждем 10 секунд перед повторной попыткой
 
 
@@ -156,9 +168,8 @@ def process_ssh_logs(logs):
                 bot.send_message(expected_chat_id, message)
                 # TO-DO: Добавьть код обработки отключения пользователя здесь
     except Exception as e:
-        error_message = f'Error in process_ssh_logs: {e}'
-        print(error_message)
-        bot.send_message(expected_chat_id, error_message)
+        logger.error(f'Error in process_ssh_logs: {e}')
+        bot.send_message(expected_chat_id, f'Error in process_ssh_logs: {e}')
 
 
 def get_new_ssh_logs(last_log_time):
@@ -168,10 +179,10 @@ def get_new_ssh_logs(last_log_time):
         logs = result.split('\n')
         return [log for log in logs if log.strip()]  # Удаляем пустые строки
     except subprocess.TimeoutExpired:
-        print("Превышено время ожидания при получении новых логов SSH.")
+        logger.info("Превышено время ожидания при получении новых логов SSH.")
         return None
     except Exception as e:
-        print(f'Ошибка в get_new_ssh_logs: {e}')
+        logger.error(f'Ошибка в get_new_ssh_logs: {e}')
         return None
 
 
@@ -211,13 +222,27 @@ def handle_all_messages(message):
         if message.text:
             handle_period_choice(message)
     except Exception as e:
-        print(f'Error in handle_all_messages: {e}')
+        logger.error(f'Error in handle_all_messages: {e}')
+        bot.send_message(message.chat.id, "Произошла ошибка при обработке вашего сообщения. Пожалуйста, попробуйте еще раз.")
+
+
+def check_telegram_connection():
+    try:
+        bot.get_me()
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка подключения к Telegram API: {e}")
+        return False
 
 
 if __name__ == "__main__":
     while True:
         try:
-            bot.polling(none_stop=True, timeout=60)
+            if check_telegram_connection():
+                bot.polling(none_stop=True, timeout=60)
+            else:
+                logger.info("Не удалось подключиться к Telegram API. Повторная попытка через 60 секунд.")
+                time.sleep(60)
         except Exception as e:
-            print(f"Произошла ошибка в основном цикле бота: {e}")
+            logger.error(f"Произошла ошибка в основном цикле бота: {e}")
             time.sleep(10)
