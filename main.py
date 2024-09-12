@@ -110,15 +110,18 @@ def send_ssh_logs_file(period, chat_id):
 
 
 def monitor_ssh_logs():
-    try:
-        last_log_time = datetime.now() - timedelta(seconds=1)  # Начать с предыдущей секунды
-        while True:
-            logs = get_new_ssh_logs(last_log_time)
-            if logs:
-                last_log_time = datetime.now()
-                process_ssh_logs(logs)
-    except Exception as e:
-        print(f'Error in monitor_ssh_logs: {e}')
+    while True:
+        try:
+            last_log_time = datetime.now() - timedelta(seconds=1)
+            while True:
+                logs = get_new_ssh_logs(last_log_time)
+                if logs:
+                    last_log_time = datetime.now()
+                    process_ssh_logs(logs)
+                time.sleep(1)  # Добавляем небольшую задержку
+        except Exception as e:
+            print(f'Ошибка в monitor_ssh_logs: {e}')
+            time.sleep(10)  # Ждем 10 секунд перед повторной попыткой
 
 
 def process_ssh_logs(logs):
@@ -160,13 +163,15 @@ def process_ssh_logs(logs):
 
 def get_new_ssh_logs(last_log_time):
     try:
-        # Используем "journalctl" для получения новых логов
-        command = ["journalctl", "_COMM=sshd", f"--since={last_log_time}", "--no-pager"]
-        result = subprocess.check_output(command).decode('utf-8')
+        command = ["journalctl", "_COMM=sshd", f"--since={last_log_time.strftime('%Y-%m-%d %H:%M:%S')}", "--no-pager"]
+        result = subprocess.check_output(command, timeout=30).decode('utf-8')
         logs = result.split('\n')
-        return logs
+        return [log for log in logs if log.strip()]  # Удаляем пустые строки
+    except subprocess.TimeoutExpired:
+        print("Превышено время ожидания при получении новых логов SSH.")
+        return None
     except Exception as e:
-        print(f'Error in get_new_ssh_logs: {e}')
+        print(f'Ошибка в get_new_ssh_logs: {e}')
         return None
 
 
@@ -210,4 +215,9 @@ def handle_all_messages(message):
 
 
 if __name__ == "__main__":
-    bot.polling(none_stop=True)
+    while True:
+        try:
+            bot.polling(none_stop=True, timeout=60)
+        except Exception as e:
+            print(f"Произошла ошибка в основном цикле бота: {e}")
+            time.sleep(10)
