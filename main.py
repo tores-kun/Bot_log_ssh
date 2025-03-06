@@ -16,7 +16,7 @@ bot = telebot.TeleBot(token=bot_token)
 expected_chat_id = 416541312
 
 # Создание клавиатуры
-markup = telebot.types.ReplyKeyboardMarkup()
+markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
 item_day = telebot.types.KeyboardButton('Day')
 item_week = telebot.types.KeyboardButton('Week')
 item_month = telebot.types.KeyboardButton('Month')
@@ -42,7 +42,7 @@ def handle_period_choice(message):
             logs_message = get_ssh_logs(period)
             if logs_message:
                 if len(logs_message) > 4095:
-                    for x in range(0, len(logs_message), 4095):
+                    for x in range(0, len(logs_message), 4095):                                                                            
                         bot.send_message(message.chat.id, text=logs_message[x:x+4095])
                 else:
                     bot.send_message(message.chat.id, logs_message)
@@ -92,7 +92,7 @@ def send_ssh_logs_file(period, chat_id):
     try:
         logs_message = get_ssh_logs(period)
         if logs_message:
-            # Сохраняем данные в файл
+            # Сохраняем данные в файл с кодировкой UTF-8
             file_path = f"ssh_logs_{period}.txt"
             with open(file_path, "w", encoding="utf-8") as file:
                 file.write(logs_message)
